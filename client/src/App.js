@@ -7,6 +7,7 @@ const socket = io.connect('http://localhost:3001');
 function App() {
   const [room, setRoom] = useState("");
   const [message, setMessage] = useState("");
+  const [num, setNum] = useState([]);
   const [messageReceived, setMessageReceived] = useState("");
 
   const joinRoom = () => {
@@ -18,6 +19,12 @@ function App() {
   const sendMessage = () => {
     socket.emit('send_message', {message, room});
   };
+
+  const changeNumber = () => {
+    socket.emit('changeNumber', room, (response) => {
+      setNum(response)
+    });
+  }
 
   useEffect(() => {
 socket.on("receive_message", (data) => {
@@ -35,6 +42,8 @@ setMessageReceived(data.message);
      }}/>
      <button onClick={sendMessage}>Send a Message</button>
      <h1>Message: {messageReceived}</h1>
+     <button onClick={changeNumber}>Change Number</button>
+     <h1>{num}</h1>
     </div>
   );
 }
