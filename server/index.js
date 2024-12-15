@@ -23,122 +23,214 @@ const io = new Server(server, {
 //Constants
 const PORT = process.env.PORT || 3001;
 
-//Instance variables
-const rooms = {};
+//Variables
+let numOfPlayers = 0;
+let p1 = "";
+let p2 = "";
+const players = [];
+const ready = false;
+let turn = [];
+//get new Dice
+const getNewDice = (lifep1, lifep2) => {
+  players[p1] = {
+    life: lifep1,
+    dieOne: Math.floor(Math.random() * 6) + 1,
+    dieTwo: Math.floor(Math.random() * 6) + 1,
+    dieThree: Math.floor(Math.random() * 6) + 1,
+    action: "",
+    melee: 0,
+    magic: 0,
+  };
 
-//Will connect a socket to a specified room
-const joinRoom = (socket, room) => {
-  room.sockets.push(socket);
-  socket.join(room.id, () => {
-    //store the room id in the socket for further use
-    socket.roomId = room.id;
-    console.log(socket.id, "Joined", room.id);
-  });
-};
-
-//Will make socket leave any rooms that it is a part of
-const leaveRooms = (socket) => {
-  const roomsToDelete = [];
-  for (const id in rooms) {
-    const room = rooms[id];
-    //Check to see if the socket is in the current room
-    if (room.sockets.includes(socket)) {
-      socket.leave(id);
-      //remove the socket from the room object
-      room.sockets = room.sockets.filter((item) => item !== socket);
-    }
-    //Prepare to delete any rooms that are now empty
-    if (room.sockets.length == 0) {
-      roomsToDelete.push(room);
-    }
-  }
-  //Delete all the empty rooms that we found earlier
-  for (const room of roomsToDelete) {
-    delete rooms[room.id];
-  }
-};
-
-//Will check to see if we have a game winner for the room
-const checkScore = (room, sendMessage = false) => {
-  let loser = null;
-  for (const client of room.sockets) {
-    if (client.score === 0) {
-      loser = client;
-      break;
-    }
-  }
-  if (loser) {
-    if (sendMessage) {
-      for (const client of room.sockets) {
-        client.emit(
-          "gameOver",
-          client.id === loser.id ? "You lost the game :(" : "You won the game!"
-        );
-      }
-    }
-    return true;
-  }
-  return false;
-};
-
-//At the start of each round, each player will be given 3 randomized dice to choose from and play their turn
-
-const beginRound = (socket, id) => {
-  //Make sure this only runs once, maybe find another way to do it
-  if (id && socket.id !== id) {
-    return;
-  }
-
-  //Get the room
-  const room = rooms[socket.roomId];
-  if (!room) {
-    return;
-  }
-
-  //Check if there is a winner, don't start a new round
-  if (checkScore(room)) {
-    return;
-  }
-
-  //Game logic
-  //Give the user die and current life(score), the die are calculated randomly but the life is a live value
-  let info = [{ a: 0, b: 0, c: 0, score: 10 }];
-  //Wait for them to put their die in the respective slot and send the values back.
+  players[p2] = {
+    life: lifep2,
+    dieOne: Math.floor(Math.random() * 6) + 1,
+    dieTwo: Math.floor(Math.random() * 6) + 1,
+    dieThree: Math.floor(Math.random() * 6) + 1,
+    action: "",
+    melee: 0,
+    magic: 0,
+  };
 };
 
 io.on("connection", (socket) => {
-  //this will run when the server is first accessed
   console.log(`User connected: ${socket.id}`);
-  //Give each socket an id to determine who they are
-
-
-  //join a room
-  socket.on("join_room", (data) => {
-    const room = {
-      id: data,
-      sockets: [],
+  //Create user's player object profile and get first turn ready
+  if (!p1) {
+    p1 = socket.id;
+    players[p1] = {
+      life: 25,
+      dieOne: Math.floor(Math.random() * 6) + 1,
+      dieTwo: Math.floor(Math.random() * 6) + 1,
+      dieThree: Math.floor(Math.random() * 6) + 1,
+      action: "",
+      melee: 0,
+      magic: 0,
     };
-    if (!rooms[room.data]) {
-      rooms[room.id] = room;
+  } else {
+    p2 = socket.id;
+    players[p2] = {
+      life: 25,
+      dieOne: Math.floor(Math.random() * 6) + 1,
+      dieTwo: Math.floor(Math.random() * 6) + 1,
+      dieThree: Math.floor(Math.random() * 6) + 1,
+      action: "",
+      melee: 0,
+      magic: 0,
+    };
+  }
+  numOfPlayers++;
+  if (numOfPlayers <= 2) {
+    socket.join("1");
+  }
+  io.emit("playerAdded", numOfPlayers);
+  //readies the game information for the start of the game
+  socket.on("startGame", (id) => {
+    let gameInfo = {};
+    if (p1 === socket.id) {
+      gameInfo = {
+        me: {
+          life: players[p1].life,
+          dieOne: players[p1].dieOne,
+          dieTwo: players[p1].dieTwo,
+          dieThree: players[p1].dieThree,
+        },
+        enemy: {
+          life: players[p2].life,
+          dieOne: players[p2].dieOne,
+          dieTwo: players[p2].dieTwo,
+          dieThree: players[p2].dieThree,
+        },
+      };
+    } else {
+      gameInfo = {
+        me: {
+          life: players[p2].life,
+          dieOne: players[p2].dieOne,
+          dieTwo: players[p2].dieTwo,
+          dieThree: players[p2].dieThree,
+        },
+        enemy: {
+          life: players[p1].life,
+          dieOne: players[p1].dieOne,
+          dieTwo: players[p1].dieTwo,
+          dieThree: players[p1].dieThree,
+        },
+      };
     }
-    joinRoom(socket, room);
+    socket.emit("gameUpdate", gameInfo);
   });
-
-  socket.on("send_message", (data) => {
-    //broadcast message to everyone but self
-    //socket.broadcast.emit("receive_message", data);
-
-    //send message to specific room
-    socket.to(data.room).emit("receive_message", data);
-  });
-
-  //test for cb
-  socket.on("changeNumber", (data, callback) => {
-    const num = Math.floor(Math.random() * 6) + 1;
-    callback(num);
+  socket.on("playTurn", (data) => {
+    
+    if (socket.id === p1) {
+      turn[p1] = {
+        id: socket.id,
+        life: data.life,
+        action: data.action,
+        melee: data.melee,
+        magic: data.magic,
+      };
+    } else if (socket.id === p2) {
+      turn[p2] = {
+        id: socket.id,
+        life: data.life,
+        action: data.action,
+        melee: data.melee,
+        magic: data.magic,
+      };
+    }
+    console.log(turn[p1]);
+    console.log(turn[p2]);
+    if (turn[p1] && turn[p2]) {
+      console.log("attacking");
+      //both have same action
+      if (turn[p1].action === turn[p2].action) {
+        //both defend
+        if (turn[p1].action === "Defend") {
+          //finish turn
+          if (socket.id === p1) {
+            const turnOutcome = {
+              me: { life: turn[p1].life },
+              enemy: { life: turn[p2].life },
+            };
+            io.emit("finishTurn", turnOutcome);
+          } else if (socket.if === p2) {
+            const turnOutcome = {
+              me: { life: turn[p2].life },
+              enemy: { life: turn[p1].life },
+            };
+            io.emit("finishTurn", turnOutcome);
+          }
+        }
+        //both attack
+        if (turn[p1].action === "Attack") {
+          let p1Life = turn[p1].life;
+          let p2Life = turn[p2].life;
+          p2Life -= turn[p1].melee;
+          p2Life -= turn[p1].magic;
+          p1Life -= turn[p2].melee;
+          p1Life -= turn[p2].magic;
+          if (socket.id === p1) {
+            const turnOutcome = {
+              me: { life: p1Life },
+              enemy: { life: p2Life },
+            };
+            io.emit("finishTurn", turnOutcome);
+          } else if (socket.if === p2) {
+            const turnOutcome = {
+              me: { life: p2Life },
+              enemy: { life: p1Life },
+            };
+            io.emit("finishTurn", turnOutcome);
+          }
+        }
+      }
+      //one is defending
+      if (turn[p1].action === "Defend" && turn[p2].action === "Attack") {
+        const attackMelee = turn[p2].melee - turn[p1].melee;
+        const attackMagic = turn[p2].magic - turn[p1].magic;
+        let p1Life = turn[p1].life;
+        let p2Life = turn[p2].life;
+        p1Life -= attackMelee;
+        p1Life -= attackMagic;
+        if (socket.id === p1) {
+          const turnOutcome = {
+            me: { life: p1Life },
+            enemy: { life: p2Life },
+          };
+          io.emit("finishTurn", turnOutcome);
+        } else if (socket.if === p2) {
+          const turnOutcome = {
+            me: { life: p2Life },
+            enemy: { life: p1Life },
+          };
+          io.emit("finishTurn", turnOutcome);
+        }
+      }
+      if (turn[p1].action === "Defend" && turn[p2].action === "Attack") {
+        const attackMelee = turn[p1].melee - turn[p2].melee;
+        const attackMagic = turn[p1].magic - turn[p1].magic;
+        let p1Life = turn[p1].life;
+        let p2Life = turn[p2].life;
+        p2Life -= attackMelee;
+        p2Life -= attackMagic;
+        if (socket.id === p1) {
+          const turnOutcome = {
+            me: { life: p1Life },
+            enemy: { life: p2Life },
+          };
+          io.emit("finishTurn", turnOutcome);
+        } else if (socket.if === p2) {
+          const turnOutcome = {
+            me: { life: p2Life },
+            enemy: { life: p1Life },
+          };
+          io.emit("finishTurn", turnOutcome);
+        }
+      }
+    }
   });
 });
-
 //listen on a port, create a server
 server.listen(PORT, () => {
   console.log("SERVER IS RUNNING");
